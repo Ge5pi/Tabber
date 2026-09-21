@@ -1,4 +1,4 @@
-import { TabInfo, TaskItem, DistractionCheckResult, VisionAnalysisResponse, DetectedTask } from '../types';
+import { TabInfo, TaskItem, DistractionCheckResult, VisionAnalysisResponse, DetectedTask, ProcessedTask } from '../types';
 import { getBackendUrl } from './storage';
 
 export const analyzeTabsWithAI = async (tabs: TabInfo[]): Promise<{
@@ -82,17 +82,22 @@ export const checkDistractionWithAI = async (
 
 export const parseTaskWithAI = async (
   text: string,
-  contextUrl: string = ''
-): Promise<TaskItem> => {
+  contextUrl: string = '',
+  existingTasks: Array<{ id: string; title: string; description?: string }> = []
+): Promise<TaskItem & { action?: 'CREATE' | 'MERGE'; target_task_id?: string | null }> => {
   const baseUrl = await getBackendUrl();
   const endpoint = `${baseUrl}/api/parse-task`;
-  console.log(`[TabAI Client] Parsing task text: "${text.substring(0, 30)}..."`);
+  console.log(`[TabAI Client] Parsing task text: "${text.substring(0, 30)}..." | Existing tasks: ${existingTasks.length}`);
 
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, contextUrl })
+      body: JSON.stringify({
+        text,
+        contextUrl,
+        existingTasks: existingTasks.map(t => ({ id: t.id, title: t.title, description: t.description || '' }))
+      })
     });
 
     if (!res.ok) {
@@ -101,10 +106,12 @@ export const parseTaskWithAI = async (
     }
 
     const data = await res.json();
-    console.log(`[TabAI Client] Parsed task response (source: ${data.source || 'unknown'}):`, data);
+    console.log(`[TabAI Client] Parsed task response (action: ${data.action || 'CREATE'}, source: ${data.source || 'unknown'}):`, data);
+
+    const newUuid = self.crypto && self.crypto.randomUUID ? self.crypto.randomUUID() : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     return {
-      id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: data.target_task_id || newUuid,
       title: data.title || text.substring(0, 50),
       category: data.category || 'General',
       priority: data.priority || 'medium',
@@ -113,12 +120,15 @@ export const parseTaskWithAI = async (
       createdAt: new Date().toISOString(),
       deadline: data.deadline || null,
       contextUrl,
-      originalText: text
+      originalText: data.description || text,
+      action: data.action || 'CREATE',
+      target_task_id: data.target_task_id || null
     };
   } catch (err: any) {
     console.error(`❌ [TabAI Client Error] Task parsing failed: ${err.message || err}. Using client fallback.`);
+    const newUuid = self.crypto && self.crypto.randomUUID ? self.crypto.randomUUID() : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     return {
-      id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: newUuid,
       title: text.length > 60 ? text.substring(0, 60) + '...' : text,
       category: 'Quick Note',
       priority: 'medium',
@@ -126,7 +136,9 @@ export const parseTaskWithAI = async (
       completed: false,
       createdAt: new Date().toISOString(),
       contextUrl,
-      originalText: text
+      originalText: text,
+      action: 'CREATE',
+      target_task_id: null
     };
   }
 };
@@ -177,17 +189,28 @@ export const extractTasksFromTextAI = async (
   text: string,
   url: string,
   domain: string,
-  existingTaskTitles: string[] = []
-): Promise<{ tasks: DetectedTask[]; source?: string }> => {
+  existingTasks: Array<{ id: string; title: string; description?: string; deadline?: string | null }> = []
+): Promise<{ processed_tasks: ProcessedTask[]; tasks?: DetectedTask[]; source?: string }> => {
   const baseUrl = await getBackendUrl();
   const endpoint = `${baseUrl}/api/tasks/extract`;
-  console.log(`📡 [CASCADE TASK SCANNER API] Sending POST request to ${endpoint} | Domain: ${domain} | Snippet: ${text.length} chars | Existing Tasks: ${existingTaskTitles.length}`);
+  console.log(`📡 [CASCADE TASK SCANNER API] Sending POST request to ${endpoint} | Domain: ${domain} | Snippet: ${text.length} chars | Existing Tasks: ${existingTasks.length}`);
 
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, url, domain, existingTaskTitles })
+      body: JSON.stringify({
+        text,
+        url,
+        domain,
+        existingTasks: existingTasks.map(t => ({
+          id: t.id,
+          title: t.title,
+          description: t.description || '',
+          deadline: t.deadline || null
+        })),
+        existingTaskTitles: existingTasks.map(t => t.title)
+      })
     });
 
     if (!res.ok) {
@@ -196,18 +219,21 @@ export const extractTasksFromTextAI = async (
     }
 
     const data = await res.json();
-    console.log(`[TabAI Client] Extracted ${data.tasks?.length || 0} tasks from server.`);
+    console.log(`[TabAI Client] Extracted/Reconciled ${data.processed_tasks?.length || data.tasks?.length || 0} tasks from server.`);
     return data;
   } catch (err: any) {
     console.error(`❌ [TabAI Client Error] Task extraction failed: ${err.message || err}`);
     return {
-      tasks: [
+      processed_tasks: [
         {
+          action: 'CREATE',
+          target_task_id: null,
           title: text.trim().substring(0, 50),
           description: text.substring(0, 100),
           deadline: null,
           priority: 'medium',
-          action_type: 'todo'
+          action_type: 'todo',
+          actions: []
         }
       ],
       source: 'client-fallback'

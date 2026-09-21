@@ -187,9 +187,30 @@ export const TasksView: React.FC<TasksViewProps> = ({ onSwitchToFocus }) => {
                   </span>
 
                   {task.originalText && (
-                    <p className="text-[11px] text-slate-400 mt-1 line-clamp-2 italic bg-slate-900/60 p-1.5 rounded border border-slate-800">
+                    <p className="text-[11px] text-slate-400 mt-1 line-clamp-3 italic bg-slate-900/60 p-1.5 rounded border border-slate-800 whitespace-pre-wrap">
                       "{task.originalText}"
                     </p>
+                  )}
+
+                  {/* Render Enriched Quick Actions (from MERGE/RECONCILE) */}
+                  {task.actions && task.actions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {task.actions.map((act, actIdx) => (
+                        <a
+                          key={actIdx}
+                          href={act.url || '#'}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => {
+                            if (!act.url) e.preventDefault();
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-950/60 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-900/80 transition-all flex items-center gap-1"
+                        >
+                          <span>{act.label}</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

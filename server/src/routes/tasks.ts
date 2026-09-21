@@ -2,16 +2,24 @@ import { Router, Request, Response } from 'express';
 
 export const tasksRouter = Router();
 
-export interface DetectedTask {
+export interface ProcessedTaskResponse {
+  action: 'CREATE' | 'MERGE';
+  target_task_id: string | null;
   title: string;
   description: string;
   deadline: string | null;
-  priority: 'low' | 'medium' | 'high';
-  action_type: 'calendar_event' | 'todo' | 'review';
+  priority?: 'low' | 'medium' | 'high';
+  action_type?: 'calendar_event' | 'todo' | 'review';
+  actions?: Array<{
+    label: string;
+    type: 'calendar_event' | 'todo' | 'review' | 'url_link';
+    url?: string;
+  }>;
 }
 
 const GEMINI_MODELS = [
   'gemini-2.5-flash',
+  'gemini-3.6-flash',
   'gemini-1.5-flash',
   'gemini-1.5-pro',
   'gemini-2.0-flash-exp',
@@ -19,18 +27,27 @@ const GEMINI_MODELS = [
 ];
 
 tasksRouter.post('/extract', async (req: Request, res: Response) => {
-  const { text, url, domain, existingTaskTitles } = req.body;
+  const { text, url, domain, existingTasks, existingTaskTitles } = req.body;
 
   if (!text || typeof text !== 'string') {
     console.warn('⚠️ [/api/tasks/extract] Text missing in request body');
     return res.status(400).json({ error: 'Text content is required' });
   }
 
-  const existingList = Array.isArray(existingTaskTitles) && existingTaskTitles.length > 0
-    ? existingTaskTitles.slice(0, 35).map((t: string) => `- ${t}`).join('\n')
-    : 'None';
+  // Support both existingTasks: [{id, title, description, deadline}] and legacy existingTaskTitles
+  let formattedExistingTasks = 'None';
 
-  console.log(`📡 [CASCADE TASK SCANNER SERVER] Incoming request from ${domain || url || 'web page'} | Text length: ${text.length} chars | Existing tasks count: ${Array.isArray(existingTaskTitles) ? existingTaskTitles.length : 0}`);
+  if (Array.isArray(existingTasks) && existingTasks.length > 0) {
+    formattedExistingTasks = existingTasks.slice(0, 35).map((t: any) =>
+      `- ID: "${t.id}" | Title: "${t.title}" | Description: "${t.description || ''}" | Deadline: "${t.deadline || 'None'}"`
+    ).join('\n');
+  } else if (Array.isArray(existingTaskTitles) && existingTaskTitles.length > 0) {
+    formattedExistingTasks = existingTaskTitles.slice(0, 35).map((t: string, idx: number) =>
+      `- ID: "legacy_${idx}" | Title: "${t}"`
+    ).join('\n');
+  }
+
+  console.log(`📡 [CASCADE TASK SCANNER SERVER] Incoming request from ${domain || url || 'web page'} | Text length: ${text.length} chars | Existing tasks count: ${Array.isArray(existingTasks) ? existingTasks.length : (Array.isArray(existingTaskTitles) ? existingTaskTitles.length : 0)}`);
 
   const currentDateTime = new Date().toISOString();
 
@@ -38,31 +55,56 @@ tasksRouter.post('/extract', async (req: Request, res: Response) => {
 Current System Date/Time: ${currentDateTime}
 
 Existing Tasks already in system:
-${existingList}
+${formattedExistingTasks}
 
-Extracted Text Context:
+Extracted Text Context from Page:
 """
 ${text.substring(0, 4000)}
 """
 
-Extract ONLY NEW actionable tasks, to-dos, deadlines, and meetings from this text.
-CRITICAL DEDUPLICATION RULE:
-- Do NOT extract any tasks that are duplicates, semantic equivalents, or slight rephrasings of ANY existing task listed above under "Existing Tasks already in system".
-- Only return tasks that represent genuinely new actions not captured previously.
+You are an expert AI Task Deduplication & Reconciliation Agent (Smart Task Deduplication & Reconciliation).
+Analyze the extracted text context for actionable tasks, to-dos, deadlines, and events.
+Compare every candidate task SEMANTICALLY against the "Existing Tasks already in system" listed above.
 
-TEMPORAL CONTEXT RULE:
-- Use the "Current System Date/Time" provided above as the absolute baseline for words like "tomorrow", "next week", "today", or "Monday".
-- Calculate the exact ISO date for the \`deadline\` field based on this baseline.
+MATCHING & ACTION RULES:
+1. SEMANTIC MATCHING (MERGE):
+   - Compare by MEANING AND INTENT, NOT exact wording or characters.
+   - If a candidate task refers to the same subject, goal, or assignment as an existing task (e.g. "Review PR #142" vs "Approve pull request 142 on Github", "Submit quarterly report" vs "Send Q3 financial report"), mark action as "MERGE".
+   - Set "target_task_id" to the EXACT ID of that matched existing task.
+   - "title": Generate a single canonical, clean title combining the best details.
+   - "description": Enrich and combine the updated/enriched description from both the existing task and the new context.
+   - "deadline": Update deadline if new information provides a more accurate or updated date, else keep existing ISO date or null.
+   - "actions": List relevant quick actions (e.g. [{"label": "Open PR", "type": "review", "url": "..."}]).
+
+2. NEW TASK (CREATE):
+   - If a task represents a genuinely new item not present in existing tasks, mark action as "CREATE".
+   - Set "target_task_id" to null.
+   - "title": Concise canonical title.
+   - "description": Contextual description from text.
+   - "deadline": ISO format YYYY-MM-DDTHH:mm:ss if found, else null.
+   - "actions": List relevant quick actions.
+
+3. TEMPORAL CONTEXT RULE:
+   - Use "Current System Date/Time" (${currentDateTime}) as the absolute baseline for relative terms like "today", "tomorrow", "next Monday".
 
 Return JSON strictly matching this schema:
 {
-  "tasks": [
+  "processed_tasks": [
     {
-      "title": "Concise task title",
-      "description": "Details from text context",
-      "deadline": "ISO format YYYY-MM-DDTHH:mm:ss if deadline/date found, else null",
+      "action": "CREATE" | "MERGE",
+      "target_task_id": "string ID if MERGE, else null",
+      "title": "Single canonical task title",
+      "description": "Updated/enriched description with new context",
+      "deadline": "ISO format string YYYY-MM-DDTHH:mm:ss or null",
       "priority": "low" | "medium" | "high",
-      "action_type": "calendar_event" | "todo" | "review"
+      "action_type": "calendar_event" | "todo" | "review",
+      "actions": [
+        {
+          "label": "Button Label",
+          "type": "calendar_event" | "todo" | "review" | "url_link",
+          "url": "Optional URL"
+        }
+      ]
     }
   ]
 }`;
@@ -98,9 +140,34 @@ Return JSON strictly matching this schema:
         const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (rawText) {
-          console.log(`✅ [Tasks Extract AI Success] Tasks extracted successfully using "${model}"!`);
+          console.log(`✅ [Tasks Extract AI Success] Tasks extracted & reconciled successfully using "${model}"!`);
           const parsed = JSON.parse(rawText);
-          return res.json({ tasks: parsed.tasks || [], source: 'gemini' });
+          const processed = parsed.processed_tasks || parsed.tasks || [];
+          
+          // Normalize result to ensure action and target_task_id are present
+          const normalizedTasks: ProcessedTaskResponse[] = processed.map((pt: any) => ({
+            action: (pt.action === 'MERGE' && pt.target_task_id) ? 'MERGE' : 'CREATE',
+            target_task_id: pt.target_task_id || null,
+            title: pt.title || 'Untitled Task',
+            description: pt.description || '',
+            deadline: pt.deadline || null,
+            priority: pt.priority || 'medium',
+            action_type: pt.action_type || 'todo',
+            actions: pt.actions || []
+          }));
+
+          return res.json({
+            processed_tasks: normalizedTasks,
+            // Maintain backward compatibility for legacy clients expecting tasks: [...]
+            tasks: normalizedTasks.map(t => ({
+              title: t.title,
+              description: t.description,
+              deadline: t.deadline,
+              priority: t.priority,
+              action_type: t.action_type
+            })),
+            source: 'gemini'
+          });
         }
       } catch (err) {
         console.error(`❌ [Tasks Extract AI Error on ${model}]:`, err);
@@ -110,14 +177,26 @@ Return JSON strictly matching this schema:
 
   console.log('💡 [/api/tasks/extract] Using heuristic fallback response');
   const cleanTitle = text.trim().split('\n')[0].substring(0, 60);
+  const fallbackTask: ProcessedTaskResponse = {
+    action: 'CREATE',
+    target_task_id: null,
+    title: cleanTitle,
+    description: text.substring(0, 120),
+    deadline: null,
+    priority: 'medium',
+    action_type: 'todo',
+    actions: []
+  };
+
   return res.json({
+    processed_tasks: [fallbackTask],
     tasks: [
       {
-        title: cleanTitle,
-        description: text.substring(0, 120),
-        deadline: null,
-        priority: 'medium',
-        action_type: 'todo'
+        title: fallbackTask.title,
+        description: fallbackTask.description,
+        deadline: fallbackTask.deadline,
+        priority: fallbackTask.priority,
+        action_type: fallbackTask.action_type
       }
     ],
     source: 'fallback'

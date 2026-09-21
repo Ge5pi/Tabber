@@ -201,10 +201,50 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 // 4. Message Router
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'ADD_TASK') {
+    const item = message.payload;
     getTasks().then(async (tasks) => {
-      const updatedTasks = [message.payload, ...tasks];
+      let updatedTasks = [...tasks];
+      const action = item.action || 'CREATE';
+      const targetTaskId = item.target_task_id || item.id;
+
+      if (action === 'MERGE' && targetTaskId) {
+        const targetIndex = updatedTasks.findIndex(t => t.id === targetTaskId || t.title.toLowerCase() === item.title.toLowerCase());
+        if (targetIndex !== -1) {
+          const existing = updatedTasks[targetIndex];
+          updatedTasks[targetIndex] = {
+            ...existing,
+            title: item.title || existing.title,
+            originalText: item.originalText
+              ? `${existing.originalText || ''}\n[Updated context]: ${item.originalText}`.trim()
+              : existing.originalText,
+            deadline: item.deadline || existing.deadline,
+            category: item.category || existing.category,
+            priority: item.priority || existing.priority
+          };
+          await saveTasks(updatedTasks);
+          sendResponse({ success: true, action: 'MERGE', count: updatedTasks.length });
+          return;
+        }
+      }
+
+      // CREATE logic (or MERGE fallback if target not found)
+      const newUuid = self.crypto && self.crypto.randomUUID ? self.crypto.randomUUID() : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const newTask = {
+        id: item.id || newUuid,
+        title: item.title,
+        category: item.category || 'General',
+        priority: item.priority || 'medium',
+        estimateMinutes: item.estimateMinutes || 20,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        contextUrl: item.contextUrl,
+        originalText: item.originalText,
+        deadline: item.deadline || null
+      };
+
+      updatedTasks = [newTask, ...updatedTasks];
       await saveTasks(updatedTasks);
-      sendResponse({ success: true, count: updatedTasks.length });
+      sendResponse({ success: true, action: 'CREATE', count: updatedTasks.length });
     });
     return true;
   }
@@ -238,47 +278,83 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'TASKS_EXTRACTED_EVENT') {
-    const { tasks } = message.payload;
-    if (tasks && Array.isArray(tasks)) {
-      getTasks().then(async (existing) => {
-        const getTokens = (str: string) => str.toLowerCase().replace(/[^a-z0-9а-яё\\s]/gi, '').split(/\\s+/).filter(Boolean);
-        const isDuplicate = (newTitle: string, existingList: any[]) => {
-          const newTokens = getTokens(newTitle);
-          if (newTokens.length === 0) return false;
-          return existingList.some(t => {
-            const existingTokens = getTokens(t.title);
-            if (existingTokens.length === 0) return false;
-            const intersection = newTokens.filter(token => existingTokens.includes(token) || existingTokens.some(et => et.startsWith(token) || token.startsWith(et)));
-            const overlapRatio = intersection.length / Math.min(newTokens.length, existingTokens.length);
-            return overlapRatio >= 0.7; // 70% token overlap
-          });
-        };
+    const { processed_tasks, tasks } = message.payload;
+    const itemsToProcess = (processed_tasks && processed_tasks.length > 0) ? processed_tasks : (tasks || []);
 
-        const uniqueTasks: any[] = [];
-        for (const t of tasks) {
-          if (t.title && !isDuplicate(t.title, [...existing, ...uniqueTasks])) {
-            uniqueTasks.push(t);
+    if (itemsToProcess && Array.isArray(itemsToProcess) && itemsToProcess.length > 0) {
+      getTasks().then(async (existingList) => {
+        let currentTasks = [...existingList];
+        let newCreatedCount = 0;
+        let mergedCount = 0;
+
+        for (const item of itemsToProcess) {
+          const action = item.action || 'CREATE';
+          const targetTaskId = item.target_task_id;
+
+          if (action === 'MERGE' && targetTaskId) {
+            const targetIndex = currentTasks.findIndex(t => t.id === targetTaskId || t.title.toLowerCase() === targetTaskId.toLowerCase());
+
+            if (targetIndex !== -1) {
+              const existingTask = currentTasks[targetIndex];
+
+              const updatedTask = {
+                ...existingTask,
+                title: item.title || existingTask.title,
+                originalText: item.description
+                  ? `${existingTask.originalText || ''}\n[Updated context]: ${item.description}`.trim()
+                  : existingTask.originalText,
+                deadline: item.deadline || existingTask.deadline,
+                action_type: item.action_type || existingTask.action_type,
+                actions: item.actions || existingTask.actions || []
+              };
+
+              currentTasks[targetIndex] = updatedTask;
+              mergedCount++;
+              console.log(`🔀 [Background Task Reconciliation] MERGED task ID "${targetTaskId}" -> Updated title: "${updatedTask.title}"`);
+            } else {
+              const newUuid = self.crypto && self.crypto.randomUUID ? self.crypto.randomUUID() : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              const newTask = {
+                id: newUuid,
+                title: item.title,
+                category: item.action_type === 'calendar_event' ? 'Calendar' : 'Cascade AI',
+                priority: item.priority || 'medium',
+                estimateMinutes: 30,
+                completed: false,
+                createdAt: new Date().toISOString(),
+                originalText: item.description,
+                deadline: item.deadline,
+                action_type: item.action_type,
+                actions: item.actions || []
+              };
+              currentTasks = [newTask, ...currentTasks];
+              newCreatedCount++;
+            }
+          } else {
+            const newUuid = self.crypto && self.crypto.randomUUID ? self.crypto.randomUUID() : `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+            const newTask = {
+              id: newUuid,
+              title: item.title,
+              category: item.action_type === 'calendar_event' ? 'Calendar' : 'Cascade AI',
+              priority: item.priority || 'medium',
+              estimateMinutes: 30,
+              completed: false,
+              createdAt: new Date().toISOString(),
+              originalText: item.description,
+              deadline: item.deadline,
+              action_type: item.action_type,
+              actions: item.actions || []
+            };
+            currentTasks = [newTask, ...currentTasks];
+            newCreatedCount++;
+            console.log(`✨ [Background Task Reconciliation] CREATED new task ID "${newUuid}" -> Title: "${newTask.title}"`);
           }
         }
 
-        if (uniqueTasks.length > 0) {
-          const updated = [...uniqueTasks.map(t => ({
-            id: `ext_task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            title: t.title,
-            category: t.action_type === 'calendar_event' ? 'Calendar' : 'Cascade AI',
-            priority: t.priority || 'medium',
-            estimateMinutes: 30,
-            completed: false,
-            createdAt: new Date().toISOString(),
-            originalText: t.description,
-            deadline: t.deadline,
-            action_type: t.action_type
-          })), ...existing];
-
-          await saveTasks(updated);
-          console.log(`✨ [Background] Saved ${uniqueTasks.length} new unique tasks (filtered out ${tasks.length - uniqueTasks.length} duplicates).`);
+        if (newCreatedCount > 0 || mergedCount > 0) {
+          await saveTasks(currentTasks);
+          console.log(`✅ [Background Task Reconciliation Complete] Created: ${newCreatedCount}, Merged: ${mergedCount}. Total tasks now: ${currentTasks.length}`);
         } else {
-          console.log(`ℹ️ [Background] All ${tasks.length} extracted tasks were duplicates of existing tasks. Skipped saving.`);
+          console.log(`ℹ️ [Background Task Reconciliation] No storage changes required.`);
         }
       });
     }

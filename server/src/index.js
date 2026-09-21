@@ -85,7 +85,7 @@ app.get('/api/health', (req, res) => {
 
   res.json({
     status: 'ok',
-    service: 'TabAI Express Server',
+    service: 'Tabber Express Server',
     hasGeminiKey: isKeyPresent,
     apiKeyStatus: isKeyPresent ? `Configured (Length: ${apiKey.length})` : 'MISSING in server/.env',
     timestamp: new Date().toISOString()
@@ -115,7 +115,9 @@ Return a JSON object with schema:
   ]
 }`;
 
-  const aiResult = await callGemini(prompt, "You are TabAI, an expert tab organization assistant.");
+  const aiResult = await callGemini(prompt, "You are Tabber, an expert tab organization assistant.");
+...
+  console.log(`🚀 [Tabber Backend Server] Listening on http://localhost:${PORT}`);
 
   if (aiResult) {
     console.log('✨ [analyze-tabs] Returning AI result');
@@ -245,7 +247,7 @@ app.listen(PORT, () => {
   const isKeyPresent = !!(apiKey && apiKey.trim() !== '' && apiKey !== 'your_gemini_api_key_here');
 
   console.log(`\n🚀 ==================================================`);
-  console.log(`🚀 [TabAI Backend Server] Listening on http://localhost:${PORT}`);
+  console.log(`🚀 [Tabber Backend Server] Listening on http://localhost:${PORT}`);
   console.log(`🔑 [Gemini API Key]: ${isKeyPresent ? `Configured ✅ (${apiKey.substring(0, 6)}...)` : 'NOT SET ⚠️ (Set GEMINI_API_KEY in server/.env)'}`);
   console.log(`🚀 ==================================================\n`);
 });

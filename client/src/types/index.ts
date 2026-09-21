@@ -41,6 +41,7 @@ export interface TaskItem {
   originalText?: string;
   deadline?: string | null;
   action_type?: 'calendar_event' | 'todo' | 'review';
+  actions?: TaskAction[];
   inCalendar?: boolean;
   isFocus?: boolean;
 }
@@ -49,6 +50,30 @@ export interface DistractionCheckResult {
   isDistracting: boolean;
   reason: string;
   category?: string;
+}
+
+export interface TaskAction {
+  label: string;
+  type: 'calendar_event' | 'todo' | 'review' | 'url_link';
+  url?: string;
+}
+
+export interface ProcessedTask {
+  action: 'CREATE' | 'MERGE';
+  target_task_id: string | null;
+  title: string;
+  description: string;
+  deadline: string | null;
+  priority?: 'low' | 'medium' | 'high';
+  action_type?: 'calendar_event' | 'todo' | 'review';
+  actions?: TaskAction[];
+}
+
+export interface ExistingTaskInput {
+  id: string;
+  title: string;
+  description?: string;
+  deadline?: string | null;
 }
 
 export interface DetectedTask {

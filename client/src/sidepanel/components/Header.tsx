@@ -57,7 +57,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, isServe
             </div>
             <div>
               <h1 className="text-base font-bold text-black dark:text-white">
-                TabAI
+                Tabber
               </h1>
               <p className="text-[10px] text-zinc-500 font-medium tracking-wide uppercase">Vision Copilot</p>
             </div>

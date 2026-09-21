@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "TabAI - Smart Tab Manager & Focus Guard",
+  "name": "Tabber - Smart Tab Manager & Focus Guard",
   "version": "1.0.0",
   "description": "AI-powered Tab Manager, Smart Distraction Blocker, Vision Copilot & Cascade Task Scanner",
   "permissions": [
@@ -32,7 +32,7 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "Open TabAI Panel"
+    "default_title": "Open Tabber Panel"
   },
   "content_scripts": [
     {

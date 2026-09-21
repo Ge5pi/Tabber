@@ -83,23 +83,36 @@ async function runCascadeTaskScanner() {
 
   // Step 5: Backend API Submission
   const existingTasks = await getTasks();
-  const existingTaskTitles = existingTasks.map(t => t.title);
+  const existingTasksInput = existingTasks.map(t => ({
+    id: t.id,
+    title: t.title,
+    description: t.originalText || '',
+    deadline: t.deadline || null
+  }));
 
   console.log('%c📡 [CASCADE TASK SCANNER] Request sent to server!', 'color: #6366f1; font-weight: bold; font-size: 14px;', {
     domain: window.location.hostname,
     url: window.location.href,
     snippetLength: combinedText.length,
-    existingTasksCount: existingTaskTitles.length,
+    existingTasksCount: existingTasksInput.length,
     timestamp: new Date().toLocaleTimeString()
   });
   await markSnippetProcessed(snippetHash);
 
-  const result = await extractTasksFromTextAI(combinedText, window.location.href, window.location.hostname, existingTaskTitles);
+  const result = await extractTasksFromTextAI(combinedText, window.location.href, window.location.hostname, existingTasksInput);
 
-  if (result && result.tasks && result.tasks.length > 0) {
-    console.log('%c✨ [CASCADE TASK SCANNER SUCCESS] Extracted tasks:', 'color: #10b981; font-weight: bold; font-size: 13px;', result.tasks);
+  if (result && ((result.processed_tasks && result.processed_tasks.length > 0) || (result.tasks && result.tasks.length > 0))) {
+    const processedTasks = result.processed_tasks || result.tasks;
+    console.log('%c✨ [CASCADE TASK SCANNER SUCCESS] Reconciled tasks:', 'color: #10b981; font-weight: bold; font-size: 13px;', processedTasks);
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({ type: 'TASKS_EXTRACTED_EVENT', payload: { tasks: result.tasks, url: window.location.href } });
+      chrome.runtime.sendMessage({
+        type: 'TASKS_EXTRACTED_EVENT',
+        payload: {
+          processed_tasks: result.processed_tasks || [],
+          tasks: result.tasks || [],
+          url: window.location.href
+        }
+      });
     }
   } else {
     console.log('%cℹ️ [CASCADE TASK SCANNER] No tasks returned from snippet.', 'color: #9ca3af;');
@@ -266,14 +279,21 @@ function handleSelectionChange() {
         floatingButton.disabled = true;
 
         try {
-          const task = await parseTaskWithAI(selectedText, window.location.href);
+          const existingTasks = await getTasks();
+          const taskResult = await parseTaskWithAI(selectedText, window.location.href, existingTasks);
 
           if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-            chrome.runtime.sendMessage({ type: 'ADD_TASK', payload: task }, () => {
-              showToast(`✓ Task added: "${task.title}"`);
+            chrome.runtime.sendMessage({ type: 'ADD_TASK', payload: taskResult }, (response: any) => {
+              const msg = response && response.action === 'MERGE'
+                ? `🔀 Task merged: "${taskResult.title}"`
+                : `✓ Task added: "${taskResult.title}"`;
+              showToast(msg);
             });
           } else {
-            showToast(`✓ Task added: "${task.title}"`);
+            const msg = taskResult.action === 'MERGE'
+              ? `🔀 Task merged: "${taskResult.title}"`
+              : `✓ Task added: "${taskResult.title}"`;
+            showToast(msg);
           }
         } catch (err) {
           showToast('Failed to create AI Task', true);

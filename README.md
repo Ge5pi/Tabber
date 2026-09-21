@@ -1,6 +1,8 @@
-# TabAI — Chrome Extension & Focus Guard
+# Tabber — Chrome Extension & Focus Guard
 
-**TabAI** is an AI-powered Chrome Extension (Manifest V3) built with **React 19, TypeScript, Vite, Tailwind CSS**, and a **Node.js Express** backend using **Gemini 1.5 Flash API**.
+**Tabber** is an AI-powered Chrome Extension (Manifest V3) built with **React 19, TypeScript, Vite, Tailwind CSS**, and a **Node.js Express** backend using **Gemini 1.5 Flash API**.
+...
+5. Click the **Tabber** puzzle piece / extension icon to open the Side Panel!
 
 ---
 
@@ -79,7 +81,7 @@ npm run build
 2. Enable **Developer mode** (toggle at top right).
 3. Click **Load unpacked**.
 4. Select the `extension/dist` directory.
-5. Click the **TabAI** puzzle piece / extension icon to open the Side Panel!
+5. Click the **Tabber** puzzle piece / extension icon to open the Side Panel!
 
 ---
 

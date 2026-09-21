@@ -102,7 +102,7 @@ export const App: React.FC = () => {
 
         <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500 pt-2">
           <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-          <span>TabAI - Powered by Gemini AI</span>
+          <span>Tabber - Powered by Gemini AI</span>
         </div>
       </div>
     </div>

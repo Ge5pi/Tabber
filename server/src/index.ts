@@ -199,16 +199,23 @@ Return JSON:
   });
 });
 
-// Endpoint 3: Parse Text into Structured Task
+// Endpoint 3: Parse Text into Structured Task (With Semantic Reconciliation)
 app.post('/api/parse-task', async (req: Request, res: Response) => {
-  const { text, contextUrl } = req.body;
+  const { text, contextUrl, existingTasks } = req.body;
 
   if (!text) {
     console.warn('⚠️ [parse-task] Text missing in request body');
     return res.status(400).json({ error: 'Text content is required' });
   }
 
-  console.log(`📝 [parse-task] Parsing task text: "${text.substring(0, 40)}..."`);
+  console.log(`📝 [parse-task] Parsing task text: "${text.substring(0, 40)}..." | Existing tasks: ${Array.isArray(existingTasks) ? existingTasks.length : 0}`);
+
+  let formattedExistingTasks = 'None';
+  if (Array.isArray(existingTasks) && existingTasks.length > 0) {
+    formattedExistingTasks = existingTasks.slice(0, 35).map((t: any) =>
+      `- ID: "${t.id}" | Title: "${t.title}" | Description: "${t.description || ''}"`
+    ).join('\n');
+  }
 
   const currentDateTime = new Date().toISOString();
 
@@ -216,30 +223,48 @@ app.post('/api/parse-task', async (req: Request, res: Response) => {
 Context URL: "${contextUrl || ''}"
 Current System Date/Time: ${currentDateTime}
 
-Extract an actionable task item from this selected text.
-TEMPORAL CONTEXT RULE:
-- Use the "Current System Date/Time" provided above as the absolute baseline for determining relative dates (e.g., "tomorrow", "in 2 hours", "next Friday").
-- If a date/time is found or implied, return it as an exact ISO string in the \`deadline\` field.
+Existing Tasks already in system:
+${formattedExistingTasks}
+
+Extract an actionable task item from this selected text and compare SEMANTICALLY against Existing Tasks.
+
+RULES:
+1. If the selected text matches an existing task in meaning or goal, return "action": "MERGE" and "target_task_id": "EXACT_EXISTING_ID".
+2. If it is a new task, return "action": "CREATE" and "target_task_id": null.
+3. Use "Current System Date/Time" (${currentDateTime}) as baseline for relative deadlines.
 
 Return JSON:
 {
+  "action": "CREATE" | "MERGE",
+  "target_task_id": "string ID if MERGE, else null",
   "title": "Concise task title (max 8 words)",
+  "description": "Updated/enriched description",
   "category": "Work | Study | Research | Bug | General",
   "priority": "low" | "medium" | "high",
   "estimateMinutes": 15 | 30 | 45 | 60,
   "deadline": "ISO format string YYYY-MM-DDTHH:mm:ss if deadline/date found, else null"
 }`;
 
-  const aiResult = await callGemini(prompt, "You are an AI task extraction assistant.");
+  const aiResult = await callGemini(prompt, "You are an AI task extraction and deduplication assistant.");
 
   if (aiResult) {
-    console.log(`✨ [parse-task] AI task title: "${aiResult.title}"`);
-    return res.json({ ...aiResult, source: 'gemini' });
+    console.log(`✨ [parse-task] AI response: action=${aiResult.action}, title="${aiResult.title}"`);
+    return res.json({
+      action: aiResult.action || 'CREATE',
+      target_task_id: aiResult.target_task_id || null,
+      title: aiResult.title || text.substring(0, 50),
+      description: aiResult.description || text,
+      category: aiResult.category || 'General',
+      priority: aiResult.priority || 'medium',
+      estimateMinutes: aiResult.estimateMinutes || 20,
+      deadline: aiResult.deadline || null,
+      source: 'gemini'
+    });
   }
 
   console.log('💡 [parse-task] Using heuristic fallback task parsing');
   const cleanTitle = text.trim().split('\n')[0].substring(0, 60);
-  let priority = 'medium';
+  let priority: 'low' | 'medium' | 'high' = 'medium';
   if (text.toLowerCase().includes('urgent') || text.toLowerCase().includes('fix') || text.toLowerCase().includes('asap')) {
     priority = 'high';
   } else if (text.length < 20) {
@@ -247,10 +272,14 @@ Return JSON:
   }
 
   return res.json({
+    action: 'CREATE',
+    target_task_id: null,
     title: cleanTitle + (text.length > 60 ? '...' : ''),
+    description: text,
     category: contextUrl?.includes('github') ? 'Bug' : 'Research',
     priority,
     estimateMinutes: 20,
+    deadline: null,
     source: 'fallback'
   });
 });
