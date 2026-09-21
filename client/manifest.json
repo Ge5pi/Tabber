@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "TabAI - Smart Tab Manager & Focus Guard",
+  "version": "1.0.0",
+  "description": "AI-powered Tab Manager, Smart Distraction Blocker, Vision Copilot & Cascade Task Scanner",
+  "permissions": [
+    "tabs",
+    "storage",
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "identity",
+    "alarms",
+    "notifications",
+    "offscreen",
+    "tabGroups"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "oauth2": {
+    "client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.events"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open TabAI Panel"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html", "offscreen.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
