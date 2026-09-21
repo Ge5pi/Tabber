@@ -3,7 +3,7 @@ import { VisionAnalysisResponse, DetectedTask, TaskItem, AutoScanConfig } from '
 import { getStorageData, setStorageData, getTasks, saveTasks, getAutoScanConfig, saveAutoScanConfig, getPomodoroState, savePomodoroState } from '../services/storage';
 import { getGoogleAuthToken } from '../services/auth';
 import { createCalendarEvent } from '../services/calendar';
-import { Camera, RefreshCw, Calendar, Check, AlertTriangle, Sparkles, Clock, CalendarCheck, Radio, Target } from 'lucide-react';
+import { Camera, RefreshCw, Calendar, Check, AlertTriangle, Sparkles, Clock, CalendarCheck, Radio, Target, Upload } from 'lucide-react';
 
 interface VisionScannerProps {
   onSwitchToFocus?: () => void;
@@ -35,11 +35,54 @@ export const VisionScanner: React.FC<VisionScannerProps> = ({ onSwitchToFocus })
     }
   };
 
+  const processImageFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('Please paste or upload a valid image file.');
+      return;
+    }
+
+    setIsScanning(true);
+    setErrorMessage(null);
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const imageBase64 = e.target?.result as string;
+      setCapturedImage(imageBase64);
+      try {
+        const existing = await getTasks();
+        const existingTaskTitles = existing.map(t => t.title);
+        const { analyzeScreenWithAI } = await import('../services/api');
+        const res = await analyzeScreenWithAI(imageBase64, 'Pasted / Uploaded Screenshot', existingTaskTitles);
+        setScanResult(res);
+        await setStorageData('lastVisionScan', res);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to analyze pasted screenshot.');
+      } finally {
+        setIsScanning(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   useEffect(() => {
     loadData();
-    // Real-time polling every 2 seconds to update UI continuously
     const interval = setInterval(loadData, 2000);
-    return () => clearInterval(interval);
+
+    const handlePaste = (e: ClipboardEvent) => {
+      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+        const file = e.clipboardData.files[0];
+        if (file.type.startsWith('image/')) {
+          e.preventDefault();
+          processImageFile(file);
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('paste', handlePaste);
+    };
   }, []);
 
   const handleToggleAutoScan = async () => {
@@ -239,6 +282,31 @@ export const VisionScanner: React.FC<VisionScannerProps> = ({ onSwitchToFocus })
             </button>
           </div>
         </div>
+
+        {/* Screenshot Paste / Drag & Drop Dropzone */}
+        <label
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              processImageFile(e.dataTransfer.files[0]);
+            }
+          }}
+          className="mt-2 flex items-center justify-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-dashed border-slate-700/80 hover:border-indigo-500/50 cursor-pointer text-[10px] text-slate-400 hover:text-slate-200 transition-all"
+        >
+          <Upload className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          <span>Paste screenshot (<kbd className="font-mono bg-slate-800 px-1 rounded text-[9px]">Ctrl+V</kbd>) or drop image</span>
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                processImageFile(e.target.files[0]);
+              }
+            }}
+          />
+        </label>
       </div>
 
       {/* Error Message */}
@@ -257,10 +325,37 @@ export const VisionScanner: React.FC<VisionScannerProps> = ({ onSwitchToFocus })
         </div>
       )}
 
-      {/* Captured Image Preview */}
+      {/* Captured Image Preview with Bounding Box Overlay */}
       {capturedImage && !isScanning && (
-        <div className="rounded-xl overflow-hidden border border-slate-800 max-h-32 bg-slate-900">
-          <img src={capturedImage} alt="Captured Tab" className="w-full object-cover" />
+        <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-44 group">
+          <img src={capturedImage} alt="Captured Screen" className="w-full h-auto object-cover" />
+          {scanResult && scanResult.detected_tasks && scanResult.detected_tasks.map((task, idx) => {
+            if (!task.box_2d) return null;
+            const [ymin, xmin, ymax, xmax] = task.box_2d;
+            // Handle both normalized 0-1000 scale and 0-100 scale
+            const topPct = ymin > 100 ? ymin / 10 : ymin;
+            const leftPct = xmin > 100 ? xmin / 10 : xmin;
+            const heightPct = (ymax - ymin) > 100 ? (ymax - ymin) / 10 : (ymax - ymin);
+            const widthPct = (xmax - xmin) > 100 ? (xmax - xmin) / 10 : (xmax - xmin);
+
+            return (
+              <div
+                key={idx}
+                style={{
+                  top: `${topPct}%`,
+                  left: `${leftPct}%`,
+                  height: `${Math.max(heightPct, 5)}%`,
+                  width: `${Math.max(widthPct, 5)}%`
+                }}
+                className="absolute border-2 border-indigo-400 bg-indigo-500/20 rounded shadow-md pointer-events-none transition-all flex items-start p-0.5"
+                title={task.title}
+              >
+                <span className="text-[9px] font-bold bg-indigo-600 text-white px-1 rounded shadow leading-none">
+                  #{idx + 1}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 

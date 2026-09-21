@@ -8,6 +8,7 @@ export interface DetectedTask {
   deadline: string | null;
   priority: 'low' | 'medium' | 'high';
   action_type: 'calendar_event' | 'todo' | 'review';
+  box_2d?: [number, number, number, number] | null;
 }
 
 export interface VisionAnalysisResponse {
@@ -58,6 +59,9 @@ TEMPORAL CONTEXT RULE:
 - Use the "Current System Date/Time" provided above as the absolute baseline for determining relative dates (e.g., "tomorrow", "in 2 hours", "next Friday").
 - Calculate the exact ISO date for the \`deadline\` field based on this baseline.
 
+BOUNDING BOX RULE:
+- If visual location on screen is evident, specify normalized bounding box coordinates \`box_2d\`: [ymin, xmin, ymax, xmax] in scale 0 to 1000. If uncertain, set null.
+
 Return JSON strictly matching this schema:
 {
   "summary": "Brief 1-2 sentence description of what is currently on screen",
@@ -67,7 +71,8 @@ Return JSON strictly matching this schema:
       "description": "Contextual details found on screen",
       "deadline": "ISO format string YYYY-MM-DDTHH:mm:ss if deadline/date found, else null",
       "priority": "low" | "medium" | "high",
-      "action_type": "calendar_event" | "todo" | "review"
+      "action_type": "calendar_event" | "todo" | "review",
+      "box_2d": [ymin, xmin, ymax, xmax] or null
     }
   ]
 }`;

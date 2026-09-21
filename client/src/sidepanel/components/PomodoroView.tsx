@@ -13,12 +13,17 @@ export const PomodoroView: React.FC = () => {
     totalSessions: 0
   });
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
+  const [whitelistInput, setWhitelistInput] = useState('');
+  const [customWhitelist, setCustomWhitelist] = useState<string[]>([]);
 
   const loadState = async () => {
     const current = await getPomodoroState();
     setState(current);
     const tasksList = await getTasks();
     setAllTasks(tasksList.filter(t => !t.completed));
+    const { getStorageData } = await import('../../services/storage');
+    const wl = await getStorageData<string[]>('customWhitelist', []);
+    setCustomWhitelist(wl);
   };
 
   useEffect(() => {
@@ -191,26 +196,92 @@ export const PomodoroView: React.FC = () => {
         </div>
       </div>
 
-      {/* Smart Blocker Status Indicator */}
-      <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${
+      {/* Smart Blocker Status & Whitelist Settings */}
+      <div className={`p-3.5 rounded-2xl border space-y-3 transition-all ${
         state.mode === 'WORK' && state.isRunning
           ? 'bg-indigo-950/40 border-indigo-500/40 text-indigo-200'
           : 'bg-slate-900/60 border-slate-800 text-slate-400'
       }`}>
-        {state.mode === 'WORK' && state.isRunning ? (
-          <ShieldAlert className="w-5 h-5 text-indigo-400 animate-pulse shrink-0" />
-        ) : (
-          <ShieldCheck className="w-5 h-5 text-slate-500 shrink-0" />
-        )}
-        <div className="text-xs">
-          <div className="font-semibold text-slate-200">
-            {state.mode === 'WORK' && state.isRunning ? 'Smart Blocker Active' : 'Smart Blocker Idle'}
+        <div className="flex items-center gap-3">
+          {state.mode === 'WORK' && state.isRunning ? (
+            <ShieldAlert className="w-5 h-5 text-indigo-400 animate-pulse shrink-0" />
+          ) : (
+            <ShieldCheck className="w-5 h-5 text-slate-500 shrink-0" />
+          )}
+          <div className="text-xs flex-1">
+            <div className="font-semibold text-slate-200">
+              {state.mode === 'WORK' && state.isRunning ? 'Smart Blocker Active' : 'Smart Blocker Idle'}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              {state.mode === 'WORK' && state.isRunning
+                ? 'AI monitors visited URLs and blocks distracting sites during focus.'
+                : 'Start a focus session to automatically block distracting URLs.'}
+            </div>
           </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">
-            {state.mode === 'WORK' && state.isRunning
-              ? 'AI monitors visited URLs and blocks distracting sites during focus.'
-              : 'Start a focus session to automatically block distracting URLs.'}
+        </div>
+
+        {/* Custom Domain Whitelist Control */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-2">
+          <div className="text-[11px] font-semibold text-slate-300 flex items-center justify-between">
+            <span>Allowed Domains Whitelist</span>
+            <span className="text-[10px] text-slate-500 font-normal">Never block during focus</span>
           </div>
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!whitelistInput.trim()) return;
+              const domain = whitelistInput.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+              if (!customWhitelist.includes(domain)) {
+                const updated = [...customWhitelist, domain];
+                setCustomWhitelist(updated);
+                const { setStorageData } = await import('../../services/storage');
+                await setStorageData('customWhitelist', updated);
+              }
+              setWhitelistInput('');
+            }}
+            className="flex gap-1.5"
+          >
+            <input
+              type="text"
+              placeholder="e.g. stackoverflow.com"
+              value={whitelistInput}
+              onChange={(e) => setWhitelistInput(e.target.value)}
+              className="flex-1 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              type="submit"
+              disabled={!whitelistInput.trim()}
+              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-[11px] font-semibold transition-all"
+            >
+              + Allow
+            </button>
+          </form>
+
+          {customWhitelist.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {customWhitelist.map((domain, idx) => (
+                <span
+                  key={idx}
+                  className="px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1.5"
+                >
+                  <span>{domain}</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const updated = customWhitelist.filter((d) => d !== domain);
+                      setCustomWhitelist(updated);
+                      const { setStorageData } = await import('../../services/storage');
+                      await setStorageData('customWhitelist', updated);
+                    }}
+                    className="text-slate-500 hover:text-rose-400 font-bold"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

@@ -178,6 +178,15 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const pState = await getPomodoroState();
 
     if (pState.mode === 'WORK' && pState.isRunning) {
+      // Check user custom whitelist from storage first
+      const { getStorageData } = await import('../services/storage');
+      const customWhitelist = await getStorageData<string[]>('customWhitelist', []);
+      const lowerUrl = currentUrl.toLowerCase();
+      if (customWhitelist.some((allowed) => allowed.trim() && lowerUrl.includes(allowed.trim().toLowerCase()))) {
+        console.log(`🛡️ [Smart Blocker] Domain whitelisted by user settings: ${currentUrl}`);
+        return;
+      }
+
       const result = await checkDistractionWithAI(currentUrl, tab.title || '', pState.taskName);
 
       if (result.isDistracting) {

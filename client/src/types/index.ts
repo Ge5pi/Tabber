@@ -82,6 +82,7 @@ export interface DetectedTask {
   deadline: string | null;
   priority: 'low' | 'medium' | 'high';
   action_type: 'calendar_event' | 'todo' | 'review';
+  box_2d?: [number, number, number, number] | null; // Normalized 0-1000 or 0-100 coordinates
 }
 
 export interface VisionAnalysisResponse {
